@@ -4,3 +4,4 @@ matplotlib  # geração de gráficos locais
 pydantic  # tipagem e validações
 fastapi  # dependência indireta do MCP e uso de exceptions/responses
 uvicorn  # para rodar MCP server via ASGI
+flake8
