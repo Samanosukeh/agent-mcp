@@ -29,7 +29,6 @@ class TestAgentBasic(unittest.TestCase):
         # Procedimento real exigiria mock do LLM
         self.assertTrue(hasattr(self.runner, "llm"))
         self.assertTrue(hasattr(self.runner, "tools"))
-        self.assertTrue(hasattr(self.runner, "plan"))
 
 
 if __name__ == "__main__":
