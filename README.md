@@ -8,12 +8,20 @@
   source venv/bin/activate
   ```
 - `pip install -r requirements.txt` (ou instale: `mcp`, `matplotlib` etc)
+- **Importante para contribuidores:**
+  Para garantir que os padrões de código sejam seguidos em todos os commits, rode:
+  ```bash
+  pip install pre-commit
+  pre-commit install
+  ```
+  Assim, os hooks definidos no arquivo `.pre-commit-config.yaml` serão executados automaticamente em cada commit, bloqueando commits que não passem no lint.
 - (Opcional/recomendado) Crie um arquivo `.env` contendo:
   ```
   MCP_API_KEY=changeme
   ```
 
 ## Estrutura
+```
 data/
 me/
 ├── agent.py          # Agent principal
@@ -23,6 +31,7 @@ me/
 │   ├── server.py       # FastMCP server
 │   └── tools/          # Contextos MCP (prometheus, weather)
 └── ...
+```
 
 ## Subir o Servidor MCP
 
