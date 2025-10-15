@@ -7,21 +7,23 @@ from __future__ import annotations
 import argparse
 import sys
 import os
+from dotenv import load_dotenv
 
 from llm import OpenAIGPT4o
 from agent import AgentRunner, AgentConfig, discover_and_register_mcp_tools
 from tools import get_tools
+
+load_dotenv()
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("-k", "--api-key", help="OpenAI API key (optional, otherwise uses env OPENAI_API_KEY)")
     parser.add_argument("-p", "--prompt-file", help="Path to prompt file (overrides default me/prompt.txt)")
-    parser.add_argument("--mock", action="store_true", help="Use mock LLM responses (offline testing)")
     args = parser.parse_args(argv)
     # load tools
     tools = get_tools()
-    MCP_URL = "http://127.0.0.1:8000/mcp"
+    MCP_URL = os.getenv("MCP_URL")
     discover_and_register_mcp_tools(MCP_URL, tools)
 
     # load prompt file if provided or present in package
