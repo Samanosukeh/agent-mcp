@@ -18,36 +18,45 @@
 - (Opcional/recomendado) Crie um arquivo `.env` contendo:
   ```
   MCP_API_KEY=changeme
+  MCP_URL=http://127.0.0.1:8000/mcp
   ```
 
 ## Estrutura
+
 ```
-data/
-me/
+agent-mcp/
 ├── agent.py          # Agent principal
 ├── cli.py            # CLI interativa
-├── tools/            # Tools locais (incluindo gráficos)
+├── llm.py            # Wrapper do modelo LLM (ex: OpenAI)
 ├── mcp/
-│   ├── server.py       # FastMCP server
-│   └── tools/          # Contextos MCP (prometheus, weather)
+│   ├── server.py         # FastMCP server
+│   └── tools/            # Contextos MCP (prometheus, weather)
+├── prompt.txt
+├── requirements.txt
+├── tests/
+│   └── test_agent_basic.py
+├── tools/
+│   ├── calc_tool.py
+│   ├── current_time_tool.py
+│   ├── echo_tool.py
+│   ├── file_tool.py
+│   ├── graph_tool.py
+│   ├── mcp_proxy_tool.py
+│   └── search_tool.py
 └── ...
 ```
 
 ## Subir o Servidor MCP
 
-1. Acesse a pasta do projeto:
-   ```
-   cd /Users/65a/Workspace/Flauberth/IA/werbo-ia/api/me
-   ```
-2. Execute o server MCP:
-   ```
-   cd mcp
-   python server.py
-   # ou (preferencial):
-   uvicorn server:app --host 127.0.0.1 --port 8000
-   ```
-- O servidor estará disponível em: `http://127.0.0.1:8000/mcp`
-- As tools requerem o token (do .env) para autenticação.
+Na raiz do projeto, execute:
+```bash
+python -m mcp.server
+# ou usando uvicorn diretamente:
+uvicorn mcp.server:app --host 127.0.0.1 --port 8000
+```
+O servidor MCP estará disponível em: `http://127.0.0.1:8000/mcp`
+- O endpoint `/mcp/overview` lista de forma resumida as tools registradas no MCP.
+- As tools podem requerer o token (do .env) para autenticação (`MCP_API_KEY`).
 
 ## Subir o Agent/autônomo
 
@@ -58,6 +67,13 @@ python agent.py
 python cli.py
 ```
 - O agent descobre tools locais e MCPS remotos automaticamente.
+- Por padrão, a CLI tenta ler a URL do servidor MCP da variável de ambiente MCP_URL.
+    - Se o MCP_URL não estiver definida no ambiente ou no .env, ela não conecta ao MCP remoto.
+    - Exemplo para rodar com MCP remoto:
+    ```bash
+    export MCP_URL=http://127.0.0.1:8000/mcp
+    python cli.py
+    ```
 - O prompt instruirá sempre a responder em português e correta validação dos dados (ex: gráficos).
 
 ## Exemplos de queries (CLI ou agent)
