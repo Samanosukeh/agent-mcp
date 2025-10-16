@@ -17,7 +17,7 @@ from typing import List, Dict
 
 
 class OpenAIGPT4o:
-    def __init__(self, api_key: str | None = None, model: str = "gpt-4o"):
+    def __init__(self, api_key: str | None = None, model: str = "gpt-4.1-2025-04-14"):
         self.api_key = os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY environment variable is required")
