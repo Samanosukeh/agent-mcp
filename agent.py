@@ -75,17 +75,22 @@ class AgentRunner:
         print(content, file=sys.stderr)
         print("--- END PLAN RAW LLM OUTPUT ---\n", file=sys.stderr)
         try:
-            return json.loads(content)
+            return json.loads(content.replace('```json', '').replace('```', ''))
         except Exception:
-            # try to extract JSON block
-            start = content.find("{")
-            end = content.rfind("}")
-            if start != -1 and end != -1:
+            import re
+            match = re.search(r'\{[\s\S]*\}', content)
+            if match:
                 try:
-                    return json.loads(content[start: end + 1])
+                    return json.loads(match.group())
                 except Exception:
-                    pass
-        raise ValueError("LLM did not return valid JSON plan")
+                    print("[WARN] LLM respondeu, mas o JSON estava truncado ou inválido.", file=sys.stderr)
+        print("[WARN] Retornando fallback: repassando resposta bruta do modelo como answer.", file=sys.stderr)
+        return {
+            "final": True,
+            "thought": "Resposta do modelo fora do padrão JSON, conteúdo bruto exibido ao usuário.",
+            "action": None,
+            "answer": content
+        }
 
     def run(self, user_query: str) -> str:
         iteration = 0
