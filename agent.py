@@ -68,6 +68,9 @@ class AgentRunner:
     llm: OpenAIGPT4o
     tools: Dict[str, Tool]
     config: AgentConfig = field(default_factory=AgentConfig)
+    history: list = field(default_factory=list)  # Histórico completo de turns
+
+    MAX_HISTORY_LEN: int = 20  # preserva no máximo 20 turns antigos
 
     def _parse_llm_plan(self, content: str) -> Dict[str, Any]:
         """Parse LLM output trying to recover JSON. Falls back to first JSON found."""
@@ -92,19 +95,47 @@ class AgentRunner:
             "answer": content
         }
 
-    def run(self, user_query: str) -> str:
+    def run(self, user_query: str, print_hooks: dict = None) -> str:
+        # Permite CLI customizar cor dos logs. Exemplo de uso: print_hooks={"thought": fn, ...}
         iteration = 0
-        scratchpad = []
         observation = None
         seen_action_obs = set()
+
+        self.history.append({"role": "user", "content": user_query})
+        if len(self.history) > self.MAX_HISTORY_LEN:
+            self.history = self.history[-self.MAX_HISTORY_LEN:]
+
+        def _pretty(msg):
+            # Identifica se é JSON e retorna formatado
+            try:
+                if isinstance(msg, str) and (msg.startswith('{') or msg.startswith('[')):
+                    obj = json.loads(msg)
+                    return json.dumps(obj, indent=2, ensure_ascii=False)
+            except Exception:
+                pass
+            return msg
+
+        def _hook(kind, msg):
+            # tool_call e tool_result tentam identar se JSON
+            if kind in ("tool_call", "tool_result"):
+                pretty = _pretty(msg)
+                if print_hooks and kind in print_hooks:
+                    print_hooks[kind](pretty)
+                else:
+                    print(pretty)
+            elif print_hooks and kind in print_hooks:
+                print_hooks[kind](msg)
+            else:
+                print(msg)
 
         while iteration < self.config.max_iterations:
             iteration += 1
             prompt = [
                 {"role": "system", "content": self.config.system_prompt},
             ]
+            if self.history:
+                prompt.extend(self.history)
 
-            # include brief tools description so the LLM knows what it can call
             tools_description = []
             for tname, tobj in (self.tools or {}).items():
                 try:
@@ -124,22 +155,7 @@ class AgentRunner:
                     "content": f"Available tools: {tools_description}"
                 })
 
-            # finally add the interactive user query
-            prompt.append({"role": "user", "content": user_query})
-
-            # include scratchpad
-            if scratchpad:
-                prompt.append({"role": "assistant", "content": json.dumps(scratchpad)})
-
-            if observation is not None:
-                prompt.append({
-                    "role": "user",
-                    "content": f"Observation: {json.dumps(observation)}"
-                })
-
             logger.info("Requesting plan from LLM (iteration=%d)", iteration)
-
-            # build functions schema for OpenAI function-calling (best-effort)
             functions = []
             for tname, tobj in (self.tools or {}).items():
                 try:
@@ -154,8 +170,6 @@ class AgentRunner:
 
             response = self.llm.chat(prompt, functions=functions)
 
-            # If the LLM asked for a function call (OpenAI style), execute it now and
-            # inject the observation back into the next loop iteration.
             if isinstance(response, dict) and response.get("function_call"):
                 fc = response["function_call"]
                 fc_name = fc.get("name")
@@ -164,7 +178,6 @@ class AgentRunner:
                     tool_input = json.loads(fc_args) if isinstance(fc_args, str) else fc_args or {}
                 except Exception:
                     tool_input = {}
-
                 if fc_name not in self.tools:
                     observation = {"error": f"Tool '{fc_name}' not found"}
                 else:
@@ -173,25 +186,27 @@ class AgentRunner:
                         observation = tool.run(tool_input)
                     except Exception as e:
                         observation = {"error": str(e)}
-
-                print(
-                    f">>> Invoking tool '{fc_name}' with input: "
-                    f"{json.dumps(tool_input)}"
-                )
-                print(
-                    f"<<< Tool '{fc_name}' returned: "
-                    f"{json.dumps(observation)}\n"
-                )
-
-                scratchpad.append({
-                    "thought": f"function_call:{fc_name}",
-                    "action": {"tool": fc_name, "input": tool_input},
-                    "observation": observation
+                self.history.append({
+                    "role": "function",
+                    "name": fc_name,
+                    "content": json.dumps(tool_input)
                 })
-                # continue to next iteration so the LLM can see the observation
+                self.history.append({
+                    "role": "assistant",
+                    "content": json.dumps(observation)
+                })
+                if len(self.history) > self.MAX_HISTORY_LEN:
+                    self.history = self.history[-self.MAX_HISTORY_LEN:]
+                _hook(
+                    "tool_call",
+                    f">>> Invoking tool '{fc_name}' with input: {json.dumps(tool_input, indent=4, ensure_ascii=False)}"
+                )
+                _hook(
+                    "tool_result",
+                    f"<<< Tool '{fc_name}' returned: {json.dumps(observation, indent=4, ensure_ascii=False)}\n"
+                )
                 continue
 
-            # otherwise assume we received a textual plan
             if isinstance(response, dict) and response.get("content") is not None:
                 plan = self._parse_llm_plan(response.get("content"))
             elif isinstance(response, str):
@@ -204,19 +219,25 @@ class AgentRunner:
             final = plan.get("final")
             answer = plan.get("answer")
 
-            print(f"\n[Iteration {iteration}] Thought: {thought}")
+            if thought:
+                self.history.append({"role": "assistant", "content": thought})
+                if len(self.history) > self.MAX_HISTORY_LEN:
+                    self.history = self.history[-self.MAX_HISTORY_LEN:]
+
+            _hook("thought", f"\n[Iteration {iteration}] Thought: {thought}")
 
             if final:
-                print("Agent indicated final answer.\n")
+                _hook("thought", "Agent indicated final answer.\n")
+                if answer:
+                    self.history.append({"role": "assistant", "content": answer})
                 return answer or ""
 
             if not action:
-                print("No action proposed by LLM; stopping.")
+                _hook("default", "No action proposed by LLM; stopping.")
                 return answer or ""
 
             tool_name = action.get("tool")
             tool_input = action.get("input")
-            # detect simple loops: same action + same observation
             action_obs_key = (
                 tool_name,
                 json.dumps(tool_input, sort_keys=True),
@@ -224,40 +245,40 @@ class AgentRunner:
                 if observation is not None else None
             )
             if action_obs_key in seen_action_obs:
-                print(
-                    "Detected repeated action/observation -> "
-                    "stopping to avoid loop."
-                )
+                _hook("default", "Detected repeated action/observation -> stopping to avoid loop.")
                 return answer or "Agent stopped due to repeated tool loop"
             if tool_name not in self.tools:
                 observation = {"error": f"Tool '{tool_name}' not found"}
-                scratchpad.append({
-                    "thought": thought,
-                    "action": action,
-                    "observation": observation
+                self.history.append({
+                    "role": "function",
+                    "name": tool_name,
+                    "content": json.dumps(tool_input)
                 })
+                self.history.append({
+                    "role": "assistant",
+                    "content": json.dumps(observation)
+                })
+                if len(self.history) > self.MAX_HISTORY_LEN:
+                    self.history = self.history[-self.MAX_HISTORY_LEN:]
                 continue
-
             tool = self.tools[tool_name]
-            print(
-                f">>> Invoking tool '{tool_name}' with input: "
-                f"{json.dumps(tool_input)}"
-            )
+            _hook("tool_call", f">>> Invoking tool '{tool_name}' with input: {json.dumps(tool_input)}")
             try:
                 observation = tool.run(tool_input)
             except Exception as e:
                 observation = {"error": str(e)}
-
-            print(
-                f"<<< Tool '{tool_name}' returned: "
-                f"{json.dumps(observation)}\n"
-            )
-
-            scratchpad.append({
-                "thought": thought,
-                "action": action,
-                "observation": observation
+            _hook("tool_result", f"<<< Tool '{tool_name}' returned: {json.dumps(observation)}\n")
+            self.history.append({
+                "role": "function",
+                "name": tool_name,
+                "content": json.dumps(tool_input)
             })
+            self.history.append({
+                "role": "assistant",
+                "content": json.dumps(observation)
+            })
+            if len(self.history) > self.MAX_HISTORY_LEN:
+                self.history = self.history[-self.MAX_HISTORY_LEN:]
             seen_action_obs.add((
                 tool_name,
                 json.dumps(tool_input, sort_keys=True),
