@@ -60,6 +60,7 @@ class OpenAIGPT4o:
                 body = resp.read().decode("utf-8")
         except urllib.error.HTTPError as e:
             # include response body for easier debugging
+            # fixme: nao dar  se for só timeout
             raise RuntimeError(f"OpenAI API error: {e.read().decode('utf-8')}")
 
         j = json.loads(body)
