@@ -16,32 +16,47 @@ from tools import get_tools
 load_dotenv()
 
 
+SYSTEM_PROMPT_SUFFIX = (
+    "You are an agent that plans tool calls.\n"
+    "When asked a user query, respond with a JSON object with the following shape:\n"
+    "{\n"
+    "  \"final\": boolean,\n"
+    "  \"thought\": string,\n"
+    "  \"action\": { \"tool\": string, \"input\": object } | null,\n"
+    "  \"answer\": string | null\n"
+    "}\n"
+    "If \"final\" is true, include the \"answer\" field and set \"action\" to null."
+)
+SYSTEM_PROMPT_SUFFIX += (
+    "\nIMPORTANTE: Você deve responder SEMPRE e SOMENTE no formato JSON especificado acima",
+    "nunca em texto livre ou explicação. Não retorne explicações, só JSON puro."
+)
+
+
+PROMPT_FIXED_PATH = os.path.join(os.path.dirname(__file__), "prompt.txt")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("-k", "--api-key", help="OpenAI API key (optional, otherwise uses env OPENAI_API_KEY)")
-    parser.add_argument("-p", "--prompt-file", help="Path to prompt file (overrides default me/prompt.txt)")
+    parser.add_argument(
+        "-p",
+        "--prompt-file",
+        help="Path to prompt file (modifica as INSTRUÇÕES, sempre concatena com o sistema fixo)"
+    )
+    parser.add_argument("--mock", action="store_true", help="Use mock LLM responses (offline testing)")
     args = parser.parse_args(argv)
     # load tools
     tools = get_tools()
     MCP_URL = os.getenv("MCP_URL")
     discover_and_register_mcp_tools(MCP_URL, tools)
 
-    # load prompt file if provided or present in package
-    prompt_text = None
-    if args.prompt_file:
-        if os.path.isabs(args.prompt_file):
-            prompt_path = args.prompt_file
-        else:
-            prompt_path = os.path.join(os.getcwd(), args.prompt_file)
-        if os.path.exists(prompt_path):
-            with open(prompt_path, "r", encoding="utf-8") as f:
-                prompt_text = f.read().strip()
-    else:
-        # default location: me/prompt.txt next to this module
-        default_path = os.path.join(os.path.dirname(__file__), "prompt.txt")
-        if os.path.exists(default_path):
-            with open(default_path, "r", encoding="utf-8") as f:
-                prompt_text = f.read().strip()
+    # Sempre carrega o prompt.txt fixo (nunca sobrescrito, sempre incluído)
+    with open(PROMPT_FIXED_PATH, "r", encoding="utf-8") as f:
+        user_prompt = f.read().strip()
+    prompt_text = user_prompt.strip()
+    # Garante que a especificação fixa será SEMPRE concatenada no final
+    prompt_text = prompt_text + "\n\n" + SYSTEM_PROMPT_SUFFIX
 
     # create agent config (split system vs user prompt if marker present)
     agent_config = AgentConfig()
