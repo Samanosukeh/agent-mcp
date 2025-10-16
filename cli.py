@@ -26,14 +26,28 @@ SYSTEM_PROMPT_SUFFIX = (
     "  \"answer\": string | null\n"
     "}\n"
     "If \"final\" is true, include the \"answer\" field and set \"action\" to null."
-)
-SYSTEM_PROMPT_SUFFIX += (
-    "\nIMPORTANTE: Você deve responder SEMPRE e SOMENTE no formato JSON especificado acima",
+    "\nIMPORTANTE: Você deve responder SEMPRE e SOMENTE no formato JSON especificado acima, "
     "nunca em texto livre ou explicação. Não retorne explicações, só JSON puro."
 )
 
 
 PROMPT_FIXED_PATH = os.path.join(os.path.dirname(__file__), "prompt.txt")
+
+
+def color_blue(text):
+    return f"\033[94m{text}\033[0m"
+
+
+def color_green(text):
+    return f"\033[92m{text}\033[0m"
+
+
+def color_red(text):
+    return f"\033[91m{text}\033[0m"
+
+
+def color_yellow(text):
+    return f"\033[93m{text}\033[0m"
 
 
 def main(argv=None):
@@ -84,11 +98,27 @@ def main(argv=None):
         print(prompt_text)
         print("\n---\n")
     try:
+        chat_history = []
         while True:
             query = input("Query> ")
             if not query.strip():
                 continue
-            result = runner.run(query)
+            chat_history.append({"role": "user", "content": query})
+
+            def tool_result_hook(msg):
+                msg_lower = msg.lower()
+                if ("error" in msg_lower) or ('status": "error"' in msg_lower):
+                    print(color_red(msg))
+                else:
+                    print(color_green(msg))
+
+            result = runner.run(query, print_hooks={
+                "thought": lambda msg: print(color_blue(msg)),
+                "tool_call": lambda msg: print(color_yellow(msg)),
+                "tool_result": tool_result_hook,
+                "default": lambda msg: print(msg)
+            })
+            chat_history.append({"role": "assistant", "content": str(result)})
             print("\n=== Final Answer ===")
             print(result)
             print("====================\n")
