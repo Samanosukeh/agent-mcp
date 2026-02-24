@@ -1,5 +1,3 @@
-# Werbo IA / me — Guia Rápido
-
 ## Pré-requisitos
 - Python 3.10+ (recomendado Python 3.13)
 - Para isolar dependências, crie um ambiente virtual (venv):
